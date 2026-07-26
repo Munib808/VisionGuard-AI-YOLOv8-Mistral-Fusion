@@ -1,0 +1,10 @@
+ultralytics>=8.2.0
+opencv-python>=4.9.0
+mistralai>=1.9.0,<2.0.0
+pydantic>=2.6.0
+python-dotenv>=1.0.1
+numpy>=1.26.0
+lapx>=0.5.9
+reportlab>=4.0.0
+flask>=3.0.0
+streamlit>=1.38.0
