@@ -24,6 +24,8 @@ never drift between the two interfaces.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -72,15 +74,55 @@ def job_dir_for(job_id: str) -> str:
 
 
 def _open_writer(path: str, fps: float, size) -> cv2.VideoWriter:
-    """Tries a browser-friendly H.264 fourcc first, falls back to mp4v if the
-    local OpenCV/ffmpeg build doesn't support it."""
-    for fourcc_name in ("avc1", "H264", "mp4v"):
-        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
-        writer = cv2.VideoWriter(path, fourcc, fps, size)
-        if writer.isOpened():
-            return writer
-        writer.release()
-    raise RuntimeError("Could not initialize a video writer with any known codec.")
+    """Opens a VideoWriter for the raw annotated output.
+
+    OpenCV's own fourcc encoders (avc1/H264/mp4v) are frequently NOT
+    browser-playable, especially on minimal/headless deploy containers
+    (e.g. Streamlit Community Cloud) that have no real H.264 encoder wired
+    into OpenCV's build. So this always writes with 'mp4v' -- the most
+    widely-supported OpenCV fourcc for *writing* -- to a temporary file, and
+    `_make_browser_playable()` below re-encodes it to real H.264 via ffmpeg
+    afterwards, which every desktop/mobile browser can play.
+    """
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(path, fourcc, fps, size)
+    if writer.isOpened():
+        return writer
+    writer.release()
+    raise RuntimeError("Could not initialize a video writer (mp4v).")
+
+
+def _make_browser_playable(raw_path: str, final_path: str) -> bool:
+    """Re-encodes `raw_path` to real H.264/yuv420p at `final_path` via
+    ffmpeg, which is what browsers actually require for inline <video>
+    playback -- OpenCV's own writers frequently produce files browsers can't
+    decode even when named .mp4. Returns True on success.
+
+    If ffmpeg isn't installed, falls back to simply using the raw file as-is
+    (better than nothing, but may not play in every browser) and returns
+    False so the caller can surface a warning.
+    """
+    if shutil.which("ffmpeg") is None:
+        shutil.move(raw_path, final_path)
+        return False
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", raw_path,
+                "-vcodec", "libx264", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart", "-preset", "veryfast",
+                final_path,
+            ],
+            check=True, capture_output=True, timeout=600,
+        )
+        os.remove(raw_path)
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        # ffmpeg is present but failed for some reason -- still ship the raw
+        # file rather than losing the annotated video entirely.
+        if os.path.exists(raw_path):
+            shutil.move(raw_path, final_path)
+        return False
 
 
 def _make_reporter() -> Optional[MistralReporter]:
@@ -132,6 +174,7 @@ def process_video(
     jdir = job_dir_for(job_id)
     db_path = os.path.join(jdir, "reports.db")
     annotated_path = os.path.join(jdir, "annotated.mp4")
+    raw_annotated_path = os.path.join(jdir, "_raw_annotated.mp4")
 
     def report_progress(frac: float, msg: str) -> None:
         if on_progress:
@@ -169,7 +212,7 @@ def process_video(
     storage = ReportStorage(db_path=db_path)
     reporter = _make_reporter()
 
-    writer = _open_writer(annotated_path, fps, (width, height))
+    writer = _open_writer(raw_annotated_path, fps, (width, height))
 
     result = JobResult(
         job_id=job_id, job_dir=jdir, db_path=db_path,
@@ -242,7 +285,17 @@ def process_video(
     result.duration_seconds = frame_index / fps
     result.reports = storage.get_all()
 
-    report_progress(0.95, "Finalizing report database...")
+    report_progress(0.92, "Encoding video for browser playback...")
+    playable = _make_browser_playable(raw_annotated_path, annotated_path)
+    if not playable:
+        result.warnings.append(
+            "ffmpeg was not found on this system, so the annotated video may not "
+            "play directly in your browser. Install ffmpeg (e.g. add it to "
+            "packages.txt on Streamlit Cloud, or `apt-get install ffmpeg` locally) "
+            "for guaranteed playback."
+        )
+
+    report_progress(0.97, "Finalizing report database...")
     report_progress(1.0, "Done.")
     return result
 
