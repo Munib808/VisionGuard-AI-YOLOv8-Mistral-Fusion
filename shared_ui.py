@@ -207,10 +207,22 @@ video {{ border-radius: 14px; border: 1px solid var(--border); }}
 """
 
 
+def _flatten_html(html: str) -> str:
+    """Strips leading whitespace from every line of an HTML snippet.
+
+    Streamlit's (and standard Markdown's) parser treats any line indented by
+    4+ spaces as a code block, which silently HTML-escapes and literally
+    prints tags like `<div class="...">` instead of rendering them. Every
+    HTML string handed to st.markdown(..., unsafe_allow_html=True) must be
+    flattened to one tag per line with no leading indentation to avoid this.
+    """
+    return "\n".join(line.strip() for line in html.strip().splitlines())
+
+
 def header_html(badge_text: str = "Video Intelligence") -> str:
     """Returns the shared brand header as raw HTML (used verbatim by Flask
     and injected via st.markdown(unsafe_allow_html=True) by Streamlit)."""
-    return f"""
+    return _flatten_html(f"""
     <div class="vg-header">
         <div class="vg-logo">VG</div>
         <div>
@@ -219,7 +231,7 @@ def header_html(badge_text: str = "Video Intelligence") -> str:
         </div>
         <div class="vg-badge">{badge_text}</div>
     </div>
-    """
+    """)
 
 
 def window_html(row: dict) -> str:
@@ -240,7 +252,7 @@ def window_html(row: dict) -> str:
         if row.get("error")
         else ""
     )
-    return f"""
+    return _flatten_html(f"""
     <div class="vg-window">
         <div class="win-time">WINDOW {_hms(row.get('window_start',''))} \u2192 {_hms(row.get('window_end',''))} &middot; {time_label}</div>
         {err_html}
@@ -249,4 +261,4 @@ def window_html(row: dict) -> str:
         <div class="win-section-label">Other objects report</div>
         <div class="win-other"><p>{other_text}</p></div>
     </div>
-    """
+    """)
