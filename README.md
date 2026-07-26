@@ -167,7 +167,7 @@ All settings live in `.env` (see `.env.example`). Key variables:
 | `TARGET_CLASSES` | *(all 80)* | Comma-separated COCO classes to restrict to, e.g. `person,car` |
 | `ENABLE_TRACKING` | `true` | Enables ByteTrack for stable object IDs |
 | `VIDEO_SOURCE_MODE` | `auto` | `auto` / `file` / `webcam` / `synthetic` |
-| `WINDOW_SECONDS` | `10.0` | Max seconds of detections per report window |
+| `WINDOW_SECONDS` | `3.0` | Max seconds of detections per report window |
 | `SHOW_VIDEO_WINDOW` | `true` | Show the live OpenCV window (CLI mode) |
 | `REPORTS_PDF_DIR` | `reports_pdf` | Output folder for exported PDFs |
 
